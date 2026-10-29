@@ -1,0 +1,6 @@
+{
+  "name": "Khmer Studio Music & Video Creator",
+  "description": "ឧបករណ៍គ្រប់គ្រងបទចម្រៀង បង្កើតវីដេអូ YouTube ស្វ័យប្រវត្តិជាមួយ AI Title & SEO Description, ជំនួយការ AI Synced Lyrics Generator (LRC Karaoke) និង Marquee បទបន្ទាប់",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
