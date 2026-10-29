@@ -131,21 +131,26 @@ export default function App() {
   // Load from IndexedDB on initial mount, or seed with demo songs
   useEffect(() => {
     async function loadDatabase() {
-      const storedTracks = await getAllSongsFromDb();
-      if (storedTracks && storedTracks.length > 0) {
-        // Sanitize any existing tracks whose coverUrl was previously identical to visualizer background
-        const sanitized = storedTracks.map((t, idx) => {
-          const isPresetBg = PRESET_VISUALIZERS.some((p) => p.bgUrl === t.coverUrl);
-          if (isPresetBg || !t.coverUrl) {
-            const distinctCover = PRESET_COVERS[idx % PRESET_COVERS.length].url;
-            return { ...t, coverUrl: distinctCover };
-          }
-          return t;
-        });
-        setTracks(sanitized);
-        sanitized.forEach((t) => saveSongToDb(t));
-      } else {
-        // Seed with 3 melodic demo songs
+      try {
+        const storedTracks = await getAllSongsFromDb();
+        if (storedTracks && storedTracks.length > 0) {
+          // Sanitize any existing tracks whose coverUrl was previously identical to visualizer background
+          const sanitized = storedTracks.map((t, idx) => {
+            const isPresetBg = PRESET_VISUALIZERS.some((p) => p.bgUrl === t.coverUrl);
+            if (isPresetBg || !t.coverUrl) {
+              const distinctCover = PRESET_COVERS[idx % PRESET_COVERS.length].url;
+              return { ...t, coverUrl: distinctCover };
+            }
+            return t;
+          });
+          setTracks(sanitized);
+          sanitized.forEach((t) => saveSongToDb(t).catch(() => {}));
+        } else {
+          // Seed with 3 melodic demo songs
+          await handleAddDemoTracks();
+        }
+      } catch (err) {
+        console.warn("Could not load stored tracks:", err);
         await handleAddDemoTracks();
       }
     }
@@ -154,37 +159,58 @@ export default function App() {
 
   // Create demo tracks with distinct album cover art and Khmer song captions
   const handleAddDemoTracks = async () => {
-    const demo1 = await createSynthesizedDemoSong(
-      "demo_1",
-      "ភ្លេងការខ្មែរ រំដួលដងស្ទឹងសៀមរាប",
-      "Traditional Khmer Ensemble",
-      "traditional",
-      PRESET_COVERS[1].url,
-      "🌸 អារម្មណ៍ស្រស់ស្រាយជាមួយបទភ្លេងពិរោះៗ • Enjoy the Melody 🎧"
-    );
-    const demo2 = await createSynthesizedDemoSong(
-      "demo_2",
-      "កាហ្វេពេលព្រឹក និងភ្លៀងរលឹម (Acoustic Chill)",
-      "Sinn & Ros Modern Acoustic",
-      "chill",
-      PRESET_COVERS[0].url,
-      "☕ ក្រេបកាហ្វេកំដរអារម្មណ៍ ជាមួយចង្វាក់ភ្លេងស្រទន់ • Peaceful Acoustic Moments 🍃"
-    );
-    const demo3 = await createSynthesizedDemoSong(
-      "demo_3",
-      "រាត្រីភ្នំពេញ ក្រោមពន្លឺភ្លើងពណ៌ (Night Beats)",
-      "Phnom Penh Lo-Fi Studio",
-      "ambient",
-      PRESET_COVERS[2].url,
-      "🌃 រាត្រីដ៏ស្ងប់ស្ងាត់ ជាមួយភ្លេងបាសបន្លឺឡើងយ៉ាងរណ្តំ • Night Beats & Chill ✨"
-    );
+    try {
+      const demo1 = await createSynthesizedDemoSong(
+        "demo_1",
+        "ភ្លេងការខ្មែរ រំដួលដងស្ទឹងសៀមរាប",
+        "Traditional Khmer Ensemble",
+        "traditional",
+        PRESET_COVERS[1].url,
+        "🌸 អារម្មណ៍ស្រស់ស្រាយជាមួយបទភ្លេងពិរោះៗ • Enjoy the Melody 🎧"
+      );
+      const demo2 = await createSynthesizedDemoSong(
+        "demo_2",
+        "កាហ្វេពេលព្រឹក និងភ្លៀងរលឹម (Acoustic Chill)",
+        "Sinn & Ros Modern Acoustic",
+        "chill",
+        PRESET_COVERS[0].url,
+        "☕ ក្រេបកាហ្វេកំដរអារម្មណ៍ ជាមួយចង្វាក់ភ្លេងស្រទន់ • Peaceful Acoustic Moments 🍃"
+      );
+      const demo3 = await createSynthesizedDemoSong(
+        "demo_3",
+        "រាត្រីភ្នំពេញ ក្រោមពន្លឺភ្លើងពណ៌ (Night Beats)",
+        "Phnom Penh Lo-Fi Studio",
+        "ambient",
+        PRESET_COVERS[2].url,
+        "🌃 រាត្រីដ៏ស្ងប់ស្ងាត់ ជាមួយភ្លេងបាសបន្លឺឡើងយ៉ាងរណ្តំ • Night Beats & Chill ✨"
+      );
 
-    const initialDemos = [demo1, demo2, demo3];
-    for (const d of initialDemos) {
-      await saveSongToDb(d);
+      const initialDemos = [demo1, demo2, demo3];
+      for (const d of initialDemos) {
+        saveSongToDb(d).catch(() => {});
+      }
+      setTracks(initialDemos);
+      setCurrentTrackIndex(0);
+    } catch (e) {
+      console.warn("handleAddDemoTracks fallback:", e);
+      setTracks([
+        {
+          id: "demo_1",
+          title: "ភ្លេងការខ្មែរ រំដួលដងស្ទឹងសៀមរាប",
+          artist: "Traditional Khmer Ensemble",
+          caption: "🌸 អារម្មណ៍ស្រស់ស្រាយជាមួយបទភ្លេងពិរោះៗ",
+          lyrics: "",
+          parsedLyrics: [],
+          album: "Khmer Studio Demo Collection",
+          duration: 180,
+          audioUrl: "",
+          coverUrl: PRESET_COVERS[1].url,
+          addedAt: Date.now(),
+          isDemo: true,
+        },
+      ]);
+      setCurrentTrackIndex(0);
     }
-    setTracks(initialDemos);
-    setCurrentTrackIndex(0);
   };
 
   // Initialize Web Audio API Analyser connected to the <audio> element
