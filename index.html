@@ -46,7 +46,30 @@
           setTimeout(function() {
             var diag = document.getElementById('loading-diagnostic');
             if (diag) diag.style.display = 'block';
-          }, 4500);
+          }, 3500);
+
+          window.addEventListener('error', function(e) {
+            var diag = document.getElementById('loading-diagnostic');
+            if (diag) {
+              diag.style.display = 'block';
+              var errBox = document.getElementById('live-error-details');
+              if (!errBox) {
+                errBox = document.createElement('div');
+                errBox.id = 'live-error-details';
+                errBox.style.marginTop = '10px';
+                errBox.style.padding = '8px 10px';
+                errBox.style.background = '#2a1215';
+                errBox.style.border = '1px solid #7f1d1d';
+                errBox.style.borderRadius = '8px';
+                errBox.style.color = '#fca5a5';
+                errBox.style.fontSize = '11px';
+                errBox.style.fontFamily = 'monospace';
+                errBox.style.wordBreak = 'break-all';
+                diag.appendChild(errBox);
+              }
+              errBox.textContent = 'Browser Error: ' + (e.message || 'Script load failure on ' + (e.filename || 'module'));
+            }
+          });
         </script>
       </div>
     </div>
