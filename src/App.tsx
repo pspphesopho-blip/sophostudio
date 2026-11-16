@@ -683,11 +683,11 @@ export default function App() {
               setIsVideoExportOpen(true);
             }}
             className="flex items-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-rose-600/20 active:scale-95 cursor-pointer"
-            title="ទាញចេញជាវីដេអូបញ្ឈរ 9:16 សម្រាប់ YouTube Shorts (ត្រឹម 3 នាទីចុះក្រោម ≤ 180s), TikTok & Reels"
+            title="ទាញចេញជាវីដេអូបញ្ឈរ 9:16 សម្រាប់ YouTube Shorts (≤ 3 នាទី) ឬ Full នាទី សម្រាប់ TikTok, FB & IG Reels"
           >
             <Smartphone className="w-4 h-4" />
             <span>Shorts 9:16</span>
-            <span className="text-[10px] px-1 py-0.2 bg-black/25 rounded font-mono font-black">≤ 3mn</span>
+            <span className="text-[10px] px-1 py-0.2 bg-black/25 rounded font-mono font-black">3m / Full</span>
           </button>
 
           {/* Video Exporter Modal Trigger (Landscape 16:9) */}

@@ -222,6 +222,8 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   const [videoCaptionMode, setVideoCaptionMode] = useState<CaptionMode>(initialCaptionMode || "capcut_bounce");
   const [exportMode, setExportMode] = useState<"current" | "short" | "mix" | "all">("short");
   const [quickShortSecs, setQuickShortSecs] = useState<number>(60);
+  const [useFullTrackDuration, setUseFullTrackDuration] = useState<boolean>(false);
+  const [portraitFullDuration, setPortraitFullDuration] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState(false);
   const [progress, setProgress] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -232,9 +234,12 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   const [statusMessage, setStatusMessage] = useState("");
   const [currentlyExportingIndex, setCurrentlyExportingIndex] = useState(0);
 
-  // Synchronize cover, caption and style settings whenever the modal opens
+  // Synchronize orientation, cover, caption and style settings whenever the modal opens
   useEffect(() => {
     if (isOpen) {
+      if (initialOrientation) {
+        setVideoOrientation(initialOrientation);
+      }
       if (initialShowCover !== undefined) {
         setShowVideoCover(initialShowCover);
       }
@@ -248,7 +253,7 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
         setSelectedStyle(visualizerStyle);
       }
     }
-  }, [isOpen, initialShowCover, initialShowCaption, initialCaptionMode, visualizerStyle]);
+  }, [isOpen, initialOrientation, initialShowCover, initialShowCaption, initialCaptionMode, visualizerStyle]);
 
   const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -301,15 +306,20 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   };
 
   // Calculate target duration based on mode
+  const activeTrackDuration = Math.max(10, Math.round(activeTrack?.duration || 180));
+
   const getSelectedDuration = () => {
-    if (videoOrientation === "portrait") {
+    if (videoOrientation === "portrait" && !portraitFullDuration) {
       // Strict rule for YouTube Shorts: must be <= 3 minutes (180 seconds)
       if (exportMode === "short") {
+        if (useFullTrackDuration) {
+          return Math.min(activeTrackDuration, MAX_SHORTS_DURATION_SECONDS);
+        }
         return Math.min(quickShortSecs, MAX_SHORTS_DURATION_SECONDS);
       }
       if (exportMode === "current") {
         // Cap at 3 minutes max (180s) for YouTube Shorts compliance
-        return Math.min(activeTrack?.duration || 180, MAX_SHORTS_DURATION_SECONDS);
+        return Math.min(activeTrackDuration, MAX_SHORTS_DURATION_SECONDS);
       }
       if (exportMode === "mix") {
         // 3 tracks mix in Shorts mode: capped at 3 minutes (180s)
@@ -321,11 +331,15 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
       return Math.min(totalAll, MAX_SHORTS_DURATION_SECONDS);
     }
 
-    // Landscape orientation (Standard YouTube long video)
-    if (exportMode === "short") return Math.min(quickShortSecs, MAX_SHORTS_DURATION_SECONDS);
-    if (exportMode === "current") return Math.min(activeTrack?.duration || 180, 600);
+    // Full duration enabled (Landscape 16:9 OR Portrait 9:16 Full Duration mode)
+    if (exportMode === "short") {
+      return useFullTrackDuration ? activeTrackDuration : quickShortSecs;
+    }
+    if (exportMode === "current") {
+      return activeTrackDuration;
+    }
     if (exportMode === "mix") {
-      return Math.min(tracks.slice(0, 3).reduce((a, b) => a + (b.duration || 180), 0), 600);
+      return Math.max(tracks.slice(0, 3).reduce((a, b) => a + (b.duration || 180), 0), 10);
     }
     // "all": Sum of all track durations
     const totalAll = tracks.reduce((sum, t) => sum + (t.duration || 180), 0);
@@ -1030,7 +1044,11 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
         ctx.fillRect(0, marqueeH - 2 * scale, width, 2 * scale);
 
         // Display ONLY the song title of each track
-        const prefix = isPortrait ? "📱 #Shorts ✦ " : "";
+        const prefix = isPortrait
+          ? durationToRecord <= MAX_SHORTS_DURATION_SECONDS
+            ? "📱 #Shorts ✦ "
+            : "📱 Full Video ✦ "
+          : "";
         const marqueeStr = `${prefix}🎵 ${currentPlayingTrack.title}   ✦   ${prefix}🎵 ${currentPlayingTrack.title}   ✦   `;
         ctx.font = `bold ${Math.round((isPortrait ? 20 : 22) * scale)}px 'Kantumruy Pro', sans-serif`;
         ctx.fillStyle = "#ffffff";
@@ -1201,7 +1219,12 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
     a.href = url;
     const trackCount = getTracksToExport().length;
     const safeTitle = (activeTrack?.title || "Khmer_Music").replace(/\s+/g, "_");
-    const orientationTag = videoOrientation === "portrait" ? "Shorts_9x16" : "Landscape_16x9";
+    const orientationTag =
+      videoOrientation === "portrait"
+        ? targetDuration > MAX_SHORTS_DURATION_SECONDS
+          ? "Full_9x16"
+          : "Shorts_9x16"
+        : "Landscape_16x9";
     a.download =
       exportMode === "all"
         ? `Full_Playlist_${trackCount}_Tracks_${orientationTag}_${activeRes.name.replace(/\s+/g, "_")}.webm`
@@ -1335,25 +1358,78 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                 </div>
               </div>
 
-              {/* YouTube Shorts Duration Compliance Notice (≤ 3 minutes) */}
+              {/* Portrait 9:16 Duration Policy Switch (Shorts ≤ 3m vs Full នាទី) */}
               {videoOrientation === "portrait" && (
-                <div className="p-3 bg-gradient-to-r from-rose-500/15 via-pink-500/10 to-purple-500/10 border border-rose-500/30 rounded-2xl flex items-center justify-between gap-3 animate-fade-in">
-                  <div className="flex items-center gap-2.5">
-                    <span className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-black text-xs shrink-0 flex items-center gap-1 shadow-md shadow-rose-500/20">
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>≤ 3 នាទី</span>
-                    </span>
-                    <div>
-                      <p className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span>ស្តង់ដារ YouTube Shorts (កំណត់ត្រឹម 3 នាទី / 180 វិនាទី)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 font-mono font-bold">
-                          Official Shorts Rule
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-rose-200/90 mt-0.5 leading-relaxed">
-                        YouTube Shorts អនុញ្ញាតត្រឹមអតិបរមា 3 នាទីចុះក្រោម (≤ 180s)។ រាល់វីដេអូបញ្ឈរ 9:16 ត្រូវបានកំណត់ត្រឹម 3 នាទីចុះក្រោមដោយស្វ័យប្រវត្តិ។
-                      </p>
+                <div className="p-3 bg-gradient-to-r from-rose-500/15 via-pink-500/10 to-purple-500/10 border border-rose-500/30 rounded-2xl space-y-2.5 animate-fade-in">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`px-2.5 py-1 rounded-xl font-black text-xs shrink-0 flex items-center gap-1 shadow-md ${
+                          portraitFullDuration
+                            ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-black shadow-emerald-500/20"
+                            : "bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-rose-500/20"
+                        }`}
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>{portraitFullDuration ? "Full នាទី" : "≤ 3 នាទី"}</span>
+                      </span>
+                      <div>
+                        <p className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            {portraitFullDuration
+                              ? "ទាញចេញវីដេអូ 9:16 Full នាទី (មិនកាត់ពេលវេលា)"
+                              : "ស្តង់ដារ YouTube Shorts (កំណត់ត្រឹម 3 នាទី / 180 វិនាទី)"}
+                          </span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                              portraitFullDuration
+                                ? "bg-emerald-500/25 text-emerald-300"
+                                : "bg-rose-500/30 text-rose-300"
+                            }`}
+                          >
+                            {portraitFullDuration ? "Full Duration" : "Official Shorts Rule"}
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-rose-200/90 mt-0.5 leading-relaxed">
+                          {portraitFullDuration
+                            ? "អាចទាញចេញពេញមួយបទ ឬគ្រប់បទដោយមិនកាត់ត្រឹម 3 នាទី (សាកសមសម្រាប់ TikTok, FB Reels & វីដេអូបញ្ឈរ Full)"
+                            : "YouTube Shorts អនុញ្ញាតត្រឹម 3 នាទីចុះក្រោម (≤ 180s)។ ចុចប្តូរទៅ «Full នាទី» បើចង់ទាញចេញពេញបទ!"}
+                        </p>
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPortraitFullDuration(false);
+                        setUseFullTrackDuration(false);
+                      }}
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        !portraitFullDuration
+                          ? "bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/25"
+                          : "bg-neutral-900/80 text-neutral-300 border-neutral-700 hover:text-white"
+                      }`}
+                    >
+                      <span>📱 Shorts ត្រឹម 3 នាទី (≤ 180s)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPortraitFullDuration(true);
+                        if (exportMode === "short") {
+                          setUseFullTrackDuration(true);
+                        }
+                      }}
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        portraitFullDuration
+                          ? "bg-gradient-to-r from-emerald-500 to-teal-400 text-black border-emerald-300 shadow-md shadow-emerald-500/25 font-black"
+                          : "bg-neutral-900/80 text-neutral-300 border-neutral-700 hover:border-emerald-500/50 hover:text-emerald-300"
+                      }`}
+                    >
+                      <span>🎬 ទាញចេញ Full នាទី (ពេញប្រវែង)</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -1365,8 +1441,16 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     ជ្រើសរើសរយៈពេល ឬ ចំនួនបទ (Export Mode):
                   </label>
                   {videoOrientation === "portrait" && (
-                    <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
-                      ⚡ Shorts Cap: Max 180s (3 នាទី)
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        portraitFullDuration
+                          ? "text-emerald-300 bg-emerald-500/15 border-emerald-500/30"
+                          : "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                      }`}
+                    >
+                      {portraitFullDuration
+                        ? "🎬 9:16 Full នាទី (មិនកាត់ពេល)"
+                        : "⚡ Shorts Cap: Max 180s (3 នាទី)"}
                     </span>
                   )}
                 </div>
@@ -1387,22 +1471,30 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                   >
                     <span
                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded absolute top-2 right-2 flex items-center gap-0.5 ${
-                        videoOrientation === "portrait"
+                        useFullTrackDuration
+                          ? "bg-emerald-500 text-black"
+                          : videoOrientation === "portrait"
                           ? "bg-rose-500 text-white"
                           : "bg-amber-400 text-black"
                       }`}
                     >
-                      <Zap className="w-2.5 h-2.5" /> លឿនបំផុត
+                      <Zap className="w-2.5 h-2.5" /> {useFullTrackDuration ? "FULL" : "លឿនបំផុត"}
                     </span>
                     <p className="text-xs font-bold text-white flex items-center gap-1">
                       <span>⚡ គំរូ Shorts / Quick</span>
                     </p>
                     <p
                       className={`text-[11px] font-bold mt-0.5 ${
-                        videoOrientation === "portrait" ? "text-rose-300" : "text-amber-400"
+                        useFullTrackDuration
+                          ? "text-emerald-300"
+                          : videoOrientation === "portrait"
+                          ? "text-rose-300"
+                          : "text-amber-400"
                       }`}
                     >
-                      {quickShortSecs}s ({formatDuration(quickShortSecs)}) • ≤ 3 នាទី
+                      {useFullTrackDuration
+                        ? `Full នាទី (${formatDuration(activeTrackDuration)})`
+                        : `${quickShortSecs}s (${formatDuration(quickShortSecs)})`}
                     </p>
                   </button>
 
@@ -1417,12 +1509,15 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     }`}
                   >
                     <p className="text-xs font-bold text-white">
-                      🎵 {videoOrientation === "portrait" && (activeTrack?.duration || 180) > 180 ? "មួយបទ (កាត់ 3mn)" : "មួយបទពេញ"}
+                      🎵{" "}
+                      {videoOrientation === "portrait" && !portraitFullDuration && activeTrackDuration > 180
+                        ? "មួយបទ (កាត់ 3mn)"
+                        : "មួយបទពេញ (Full)"}
                     </p>
                     <p className="text-[11px] text-neutral-400 mt-0.5">
-                      {videoOrientation === "portrait"
-                        ? `${formatDuration(Math.min(activeTrack?.duration || 180, 180))} • ${(activeTrack?.duration || 180) > 180 ? "Shorts Max 3 នាទី" : "ក្រោម 3 នាទី"}`
-                        : `${formatDuration(activeTrack?.duration || 180)} • បទបច្ចុប្បន្ន`}
+                      {videoOrientation === "portrait" && !portraitFullDuration
+                        ? `${formatDuration(Math.min(activeTrackDuration, 180))} • ${activeTrackDuration > 180 ? "Shorts Max 3 នាទី" : "ក្រោម 3 នាទី"}`
+                        : `${formatDuration(activeTrackDuration)} • ពេញមួយបទ`}
                     </p>
                   </button>
 
@@ -1437,12 +1532,12 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     }`}
                   >
                     <p className="text-xs font-bold text-white">
-                      🔥 {videoOrientation === "portrait" ? "3 បទ Shorts Medley" : "3 បទដំបូង"}
+                      🔥 {videoOrientation === "portrait" && !portraitFullDuration ? "3 បទ Shorts Medley" : "3 បទដំបូង (Full)"}
                     </p>
                     <p className="text-[11px] text-neutral-400 mt-0.5">
-                      {videoOrientation === "portrait"
+                      {videoOrientation === "portrait" && !portraitFullDuration
                         ? `${formatDuration(Math.min(tracks.slice(0, 3).reduce((a, b) => a + (b.duration || 180), 0), 180))} (កំណត់ត្រឹម 3mn)`
-                        : `${Math.min(tracks.length, 3)} បទ Nonstop`}
+                        : `${formatDuration(tracks.slice(0, 3).reduce((a, b) => a + (b.duration || 180), 0))} (${Math.min(tracks.length, 3)} បទ)`}
                     </p>
                   </button>
 
@@ -1457,25 +1552,27 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     }`}
                   >
                     <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 absolute top-2 right-2">
-                      {videoOrientation === "portrait" ? "≤ 3MN" : "FULL"}
+                      {videoOrientation === "portrait" && !portraitFullDuration ? "≤ 3MN" : "FULL"}
                     </span>
                     <p className="text-xs font-bold text-white">
-                      🎬 {videoOrientation === "portrait" ? "Shorts Highlight (3mn)" : "គ្រប់បទទាំងអស់"}
+                      🎬 {videoOrientation === "portrait" && !portraitFullDuration ? "Shorts Highlight (3mn)" : "គ្រប់បទទាំងអស់"}
                     </p>
                     <p className="text-[11px] text-neutral-400 mt-0.5">
-                      {videoOrientation === "portrait"
-                        ? `កាត់ត្រឹម 3 នាទី (ប្តូរ 16:9 បើចង់បានវែង)`
+                      {videoOrientation === "portrait" && !portraitFullDuration
+                        ? `កាត់ត្រឹម 3 នាទី (ចុច Full នាទី បើចង់បានវែង)`
                         : `${tracks.length} បទ (${formatDuration(tracks.reduce((sum, t) => sum + (t.duration || 180), 0))})`}
                     </p>
                   </button>
                 </div>
               </div>
 
-              {/* Sub-duration selector for Shorts & Quick Clips (15s to 180s / 3 minutes max) */}
+              {/* Sub-duration selector for Shorts & Quick Clips (15s to 180s or Full នាទី) */}
               {(exportMode === "short" || videoOrientation === "portrait") && (
                 <div
                   className={`p-3.5 rounded-2xl border space-y-2.5 animate-fade-in ${
-                    videoOrientation === "portrait"
+                    useFullTrackDuration || portraitFullDuration
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : videoOrientation === "portrait"
                       ? "bg-rose-500/10 border-rose-500/30"
                       : "bg-amber-500/10 border-amber-500/30"
                   }`}
@@ -1483,21 +1580,27 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`p-1.5 rounded-lg text-white font-bold ${
-                          videoOrientation === "portrait" ? "bg-rose-500" : "bg-amber-400 text-black"
+                        className={`p-1.5 rounded-lg font-bold ${
+                          useFullTrackDuration || portraitFullDuration
+                            ? "bg-emerald-500 text-black"
+                            : videoOrientation === "portrait"
+                            ? "bg-rose-500 text-white"
+                            : "bg-amber-400 text-black"
                         }`}
                       >
                         <Zap className="w-3.5 h-3.5" />
                       </span>
                       <div>
-                        <p className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <span>រយៈពេលទាញយក Shorts (ត្រឹម 3 នាទីចុះក្រោម):</span>
+                        <p className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                          <span>រយៈពេលទាញយក Shorts / វីដេអូខ្លី ឬ Full នាទី:</span>
                           <span className="text-[10px] bg-white/10 px-1.5 py-0.2 rounded text-white font-mono font-bold">
-                            ≤ 180 វិនាទី
+                            {useFullTrackDuration || portraitFullDuration
+                              ? `Full នាទី (${formatDuration(getSelectedDuration())})`
+                              : "≤ 180 វិនាទី"}
                           </span>
                         </p>
                         <p className="text-[10px] text-neutral-300">
-                          កំណត់ត្រឹម 3 នាទីចុះក្រោមសម្រាប់ YouTube Shorts, TikTok & IG Reels
+                          ជ្រើសរើសរយៈពេលខ្លី 15s–3m ឬចុច «Full នាទី» ដើម្បីទាញចេញពេញមួយបទ
                         </p>
                       </div>
                     </div>
@@ -1505,25 +1608,32 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     <div className="text-right">
                       <span
                         className={`text-xs font-mono font-black px-2 py-0.5 rounded border ${
-                          videoOrientation === "portrait"
+                          useFullTrackDuration || portraitFullDuration
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                            : videoOrientation === "portrait"
                             ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
                             : "bg-amber-500/20 text-amber-300 border-amber-500/40"
                         }`}
                       >
-                        {quickShortSecs} វិនាទី ({formatDuration(quickShortSecs)})
+                        {formatDuration(getSelectedDuration())} ({getSelectedDuration()} វិនាទី)
                       </span>
                     </div>
                   </div>
 
-                  {/* 6 Quick Preset Buttons up to 180s (3 minutes) */}
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                  {/* Quick Preset Buttons (15s to 180s + Full នាទី) */}
+                  <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
                     {SHORTS_DURATION_OPTIONS.map((opt) => {
-                      const isSelected = quickShortSecs === opt.seconds;
+                      const isSelected =
+                        exportMode === "short" && !useFullTrackDuration && quickShortSecs === opt.seconds;
                       return (
                         <button
                           key={opt.seconds}
                           type="button"
-                          onClick={() => setQuickShortSecs(opt.seconds)}
+                          onClick={() => {
+                            setExportMode("short");
+                            setUseFullTrackDuration(false);
+                            setQuickShortSecs(opt.seconds);
+                          }}
                           className={`p-2 rounded-xl text-center transition cursor-pointer border relative ${
                             isSelected
                               ? videoOrientation === "portrait"
@@ -1536,32 +1646,78 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                           <div className="text-[9px] opacity-80 mt-0.5">{opt.sub}</div>
                           {opt.isMax && (
                             <span className="absolute -top-1.5 -right-1 text-[8px] bg-amber-400 text-black font-extrabold px-1 rounded-full shadow">
-                              MAX
+                              3m
                             </span>
                           )}
                         </button>
                       );
                     })}
+
+                    {/* Full នាទី (Full Track Duration) Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPortraitFullDuration(true);
+                        setUseFullTrackDuration(true);
+                        if (exportMode !== "current" && exportMode !== "mix" && exportMode !== "all") {
+                          setExportMode("short");
+                        }
+                      }}
+                      className={`p-2 rounded-xl text-center transition cursor-pointer border relative col-span-3 sm:col-span-1 ${
+                        useFullTrackDuration || (portraitFullDuration && exportMode !== "short")
+                          ? "bg-gradient-to-br from-emerald-500 to-teal-400 text-black border-emerald-300 shadow-md shadow-emerald-500/30 scale-105 font-black ring-1 ring-white/50"
+                          : "bg-emerald-950/50 text-emerald-300 border-emerald-500/40 hover:border-emerald-400 hover:bg-emerald-900/50"
+                      }`}
+                      title={`ទាញចេញវីដេអូពេញនាទីនៃបទ "${activeTrack?.title || ""}" (${formatDuration(activeTrackDuration)})`}
+                    >
+                      <div className="text-xs font-black">Full នាទី</div>
+                      <div className="text-[9px] opacity-90 mt-0.5 font-mono">
+                        {formatDuration(activeTrackDuration)}
+                      </div>
+                      <span className="absolute -top-1.5 -right-1 text-[8px] bg-emerald-400 text-black font-extrabold px-1 rounded-full shadow">
+                        FULL
+                      </span>
+                    </button>
                   </div>
 
-                  {/* Interactive Duration Slider (10s to 180s) */}
-                  <div className="pt-2 border-t border-white/10 flex items-center gap-3">
-                    <span className="text-[10px] text-neutral-400 font-mono">10s</span>
-                    <input
-                      type="range"
-                      min={10}
-                      max={MAX_SHORTS_DURATION_SECONDS}
-                      step={5}
-                      value={quickShortSecs}
-                      onChange={(e) => setQuickShortSecs(Number(e.target.value))}
-                      className={`flex-1 cursor-pointer h-1.5 rounded-lg bg-neutral-800 ${
-                        videoOrientation === "portrait" ? "accent-rose-500" : "accent-amber-400"
-                      }`}
-                    />
-                    <span className="text-[10px] text-neutral-300 font-mono font-bold">
-                      180s (3mn MAX)
-                    </span>
-                  </div>
+                  {/* Interactive Duration Slider (10s to 180s or Full Track Duration) */}
+                  {(() => {
+                    const sliderMax =
+                      portraitFullDuration || videoOrientation === "landscape"
+                        ? Math.max(MAX_SHORTS_DURATION_SECONDS, activeTrackDuration)
+                        : MAX_SHORTS_DURATION_SECONDS;
+                    const sliderValue = useFullTrackDuration
+                      ? Math.min(activeTrackDuration, sliderMax)
+                      : Math.min(quickShortSecs, sliderMax);
+                    return (
+                      <div className="pt-2 border-t border-white/10 flex items-center gap-3">
+                        <span className="text-[10px] text-neutral-400 font-mono">10s</span>
+                        <input
+                          type="range"
+                          min={10}
+                          max={sliderMax}
+                          step={5}
+                          value={sliderValue}
+                          onChange={(e) => {
+                            setExportMode("short");
+                            setUseFullTrackDuration(false);
+                            setQuickShortSecs(Number(e.target.value));
+                          }}
+                          className={`flex-1 cursor-pointer h-1.5 rounded-lg bg-neutral-800 ${
+                            useFullTrackDuration || portraitFullDuration
+                              ? "accent-emerald-400"
+                              : videoOrientation === "portrait"
+                              ? "accent-rose-500"
+                              : "accent-amber-400"
+                          }`}
+                        />
+                        <span className="text-[10px] text-neutral-300 font-mono font-bold">
+                          {formatDuration(sliderMax)}{" "}
+                          {portraitFullDuration || videoOrientation === "landscape" ? "(Full)" : "(3mn MAX)"}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2210,14 +2366,20 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
               onClick={startExport}
               className={`flex items-center space-x-2 px-5 py-2.5 font-bold rounded-xl text-xs transition shadow-lg active:scale-95 cursor-pointer ${
                 videoOrientation === "portrait"
-                  ? "bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/20"
+                  ? portraitFullDuration || getSelectedDuration() > MAX_SHORTS_DURATION_SECONDS
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black shadow-emerald-500/20"
+                    : "bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/20"
                   : "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black shadow-amber-500/20"
               }`}
             >
               {videoOrientation === "portrait" ? (
                 <>
                   <Smartphone className="w-4 h-4" />
-                  <span>ចាប់ផ្តើមទាញចេញវីដេអូ Shorts (9:16)</span>
+                  <span>
+                    {portraitFullDuration || getSelectedDuration() > MAX_SHORTS_DURATION_SECONDS
+                      ? `ចាប់ផ្តើមទាញចេញវីដេអូ 9:16 Full នាទី (${formatDuration(getSelectedDuration())})`
+                      : "ចាប់ផ្តើមទាញចេញវីដេអូ Shorts (9:16)"}
+                  </span>
                 </>
               ) : (
                 <>
